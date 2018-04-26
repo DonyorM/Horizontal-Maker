@@ -3,6 +3,13 @@
 This program is intended to make it easier to create Horizontal charts as used
 by the University of Nations School of Biblical Studies and Bible Core Course.
 
+## Download
+
+Get the latest version of the file from
+[releases](https://github.com/DonyorM/Horizontal-Maker/releases)
+
+Horizontal Maker requires at least [Java 6](https://java.com/en/download/).
+
 ## Usage
 
 Create a new spreadsheet and save as .xls or .xlsx (other formats may work, but
@@ -19,6 +26,7 @@ are not supported.) Enter in the horizontal information in the following format:
 |     9 | Paragraph 7     |     |           |           |          |
 |    15 | Paragraph 8     |  25 | Segment 4 |           |          |
 |     1 | Paragraph 9     |     |           |           |          |
+|    12 | Paragraph 10    |  22 |           |           |          |
 
 - Verse: The first verse in a paragraph.
 - Paragraph Title: The title of the paragraph.
