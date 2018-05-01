@@ -258,7 +258,7 @@
   "Reads the source from the passed workbook file"
   [source]
   (let [sheet (first (sp/sheet-seq source))]
-    (map (fn [row] (map sp/read-cell (take 6 (concat row (repeat nil))))) ; The format is six columns across
+    (map (fn [row] (map sp/read-cell (take 6 (concat (sp/cell-seq row) (repeat nil))))) ; The format is six columns across
          (remove #(let [val (sp/read-cell (first (sp/cell-seq %)))]
                     (or (nil? val) (not (number? val)))) (sp/row-seq sheet)))))
 
