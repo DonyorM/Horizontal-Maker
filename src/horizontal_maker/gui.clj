@@ -22,7 +22,9 @@
                                                                                                      (.endsWith (.getName x) ".xlsx")
                                                                                                      (.isDirectory x))))
                                                               (sc/file-filter "All Files" (fn [& args] (constantly true)))])]
-                                             (s/text! input-field (.getPath f)))])
+                                             (s/text! input-field (if f
+                                                                    (.getPath f)
+                                                                    "")))])
         done (s/button :text "Generate"
                        :listen [:action (fn [& args] (try
                                            (generate (s/text input-field))
