@@ -171,8 +171,21 @@
 
 
 (defn char-range
-  [start end]
-  (map char (range (int start) (inc (int end)))))
+  "Generates a range of address for columns of an excel sheet, starting from the passed character and to the offset. It will automatically increment the prefix up to ZZ (so far does not support triple letter column indexes.)
+
+  Generally one should not pass the prefix, and allow the function to handle this itself."
+  ([start offset prefix]
+  ;; 90 is the value for \Z
+  (if (<= (+ (int start) offset) 90)
+    (map #(str prefix (char %)) (range (int start) (inc (+ offset (int start)))))
+    (concat (char-range start (- 90 (int start)) prefix)
+            (flatten (char-range \A
+                                 (- offset (- 90 (int start)))
+                                 (if (string? prefix)
+                                   \A
+                                   (char (inc (int prefix)))))))))
+  ([start offset]
+   (char-range start offset "")))
 
 (defn merge-cells!
   "Merges the header cells (divisions, sections, or segments).
@@ -200,11 +213,16 @@
         widths (calculate-width input)
         div? (seq (nth (first input) DIV-IDX))
         sect? (seq (nth (first input) SECT-IDX))
-        columns-used (char-range \B (+ (int \B) (if div?
-                                                  (count (remove empty? (map #(nth % SEG-IDX) input)))
-                                                  (count input))))]
-    (.setHeight (nth (sp/row-seq sheet) (if sect? 8 7)) PARA-HEIGHT)
-    (.setHeight (nth (sp/row-seq sheet) (if sect? 9 8)) REF-HEIGHT)
+        seg? (seq (nth (first input) SEG-IDX))
+        columns-used (char-range \B (if div?
+                                      (count (remove empty? (map #(nth % SEG-IDX) input)))
+                                      (count input)))]
+    (.setHeight (nth (sp/row-seq sheet) (cond-> 6
+                                          seg? inc
+                                          sect? inc)) PARA-HEIGHT)
+    (.setHeight (nth (sp/row-seq sheet) (cond-> 7
+                                          seg? inc
+                                          sect? inc)) REF-HEIGHT)
     (.setDefaultColumnWidth sheet DEFAULT-WIDTH)
     ;; Set the formatting for the headers at the top of the page
     (doall (->> (map #(sp/select-cell % sheet) ["A1" "A2" "A3"])
@@ -214,7 +232,9 @@
                 (range 1 (inc (count widths))) widths))
     ;; Setting borders for each cell
     (doseq [l columns-used
-            n (range 6 (if sect? 11 10))]
+            n (range 6 (cond-> 9
+                         seg? inc
+                         sect? inc))]
       (if-let [cell (sp/select-cell (str l n) sheet)]
         (sp/set-cell-style! cell (sp/create-cell-style! wb
                                                         (cond-> {:border-left :thin
