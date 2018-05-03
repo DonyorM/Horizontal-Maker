@@ -11,6 +11,19 @@
   (sp/save-workbook! source
                      (c/make-hzd source)))
 
+(defn display-error [message e]
+  (s/show! (s/dialog
+            :minimum-size [580 :by 340]
+            :type :error
+            :content (s/vertical-panel :items [(s/label message)
+                                               (s/scrollable
+                                                (s/text
+                                                :text (let [writ (java.io.StringWriter.)]
+                                                        (.printStackTrace e (java.io.PrintWriter. writ))
+                                                        (.toString writ))
+                                                :editable? false
+                                                :multi-line? true))]))))
+
 (defn show-vertical-dialog [parent input-loc]
   (let [output-field (s/text)
         browse (s/button :text "Browse"
@@ -45,7 +58,7 @@
                                                     (s/alert "Vertical created."))))
                                                 (catch Exception e
                                                   (clojure.stacktrace/print-stack-trace e)
-                                                  (s/alert "Error generating vertical. Please have someone knowledgeable look at the logs."))))])
+                                                  (display-error "Error generating vertical. Please have someone knowledgeable look at the logs." e))))])
         close (s/button :text "Back")
         frame (s/frame :title "Make Vertical"
                        :minimum-size [490 :by 90]
@@ -85,8 +98,7 @@
                                            (s/alert "Horizontal Created. Please close and re-open your excel sheet to see the changes.")
                                            (catch Exception e
                                              (clojure.stacktrace/print-stack-trace e)
-                                             (s/alert "Error generating horizontal. Ask someone knowledgeable to see the logs.")
-                                             (throw e))))])
+                                             (display-error "Error generating horizontal. Ask someone knowledgeable to see the logs." e))))])
         vertical (s/button :text "Generate Vertical")
         frame (s/frame :title "Make Horizontal"
                        :minimum-size [490 :by 90]
