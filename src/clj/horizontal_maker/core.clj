@@ -1,15 +1,8 @@
 (ns horizontal-maker.core
-  (:require [dk.ative.docjure.spreadsheet :as sp])
+  (:require [dk.ative.docjure.spreadsheet :as sp]
+            [horizontal-maker.constants :as con])
   (:import org.apache.poi.ss.util.CellRangeAddress))
 
-;;The indexes in the input for each item of the input. See create-spreadsheet-vector docs.
-(def START-IDX 0)
-(def PARA-IDX 1)
-(def END-IDX 2)
-(def SEG-IDX 3)
-(def SECT-IDX 4)
-(def DIV-IDX 5)
-(def TOTAL-WIDTH "The total width of the horizontal" 27000)
 
 (defn cell-range-address [rowStart rowEnd columnStart columnEnd]
   (CellRangeAddress. rowStart rowEnd columnStart columnEnd))
@@ -60,13 +53,13 @@
          refs []]
     (if (= 0 (count rows))
       (concat refs (if-not (empty? (nth row seg-idx))
-                     [(str chap ":" (nth row ref-idx))]
+                     [(str chap ":" (int (nth row ref-idx)))]
                      []))
-      (recur (first rows) (rest rows) (if-not (empty? (str (nth row END-IDX)))
+      (recur (first rows) (rest rows) (if-not (empty? (str (nth row con/END-IDX)))
                                         (inc chap)
                                         chap)
              (if-not (empty? (nth row seg-idx))
-               (conj refs (str chap ":" (nth row ref-idx)))
+               (conj refs (str chap ":" (int (nth row ref-idx))))
                refs)))))
 
 (defn- division-based-sheet
@@ -77,17 +70,17 @@
          divs ["Divis."]
          sects ["Sect."]
          segms ["Segm."]]
-    (let [seg (nth row SEG-IDX)
+    (let [seg (nth row con/SEG-IDX)
           seg? (seq seg)
-          sect (nth row SECT-IDX)
-          div (nth row DIV-IDX)
+          sect (nth row con/SECT-IDX)
+          div (nth row con/DIV-IDX)
           result-vec [(concat divs (if seg? [div] []))
                       (concat sects (if seg? [sect] []))
                       (concat segms (if seg? [seg] []))]]
     (if (= 0 (count rows))
       [(first result-vec) (second result-vec)
-       (cons "" (get-end-references input END-IDX SEG-IDX)) (last result-vec)
-       (cons "" (get-start-references input START-IDX SEG-IDX))]
+       (cons "" (get-end-references input con/END-IDX con/SEG-IDX)) (last result-vec)
+       (cons "" (get-start-references input con/START-IDX con/SEG-IDX))]
       (recur (first rows) (rest rows) (first result-vec)
              (second result-vec) (last result-vec))))))
 
@@ -95,10 +88,10 @@
   "For a sheet without divisions."
   [input]
   (let [first-row (first input)]
-    (reverse (cons (cons "" (get-start-references input START-IDX PARA-IDX))
+    (reverse (cons (cons "" (get-start-references input con/START-IDX con/PARA-IDX))
                    (rest (take (cond
-                           (seq (nth first-row SECT-IDX)) 5
-                           (seq (nth first-row SEG-IDX)) 4
+                           (seq (nth first-row con/SECT-IDX)) 5
+                           (seq (nth first-row con/SEG-IDX)) 4
                            true 3)
                          (apply map #(identity %&) ["" "Paragr." "" "Segm." "Sect."] input)))))))
 
@@ -112,8 +105,8 @@
   [input]
   (let [first-row (first input)
         division? (seq (last first-row))
-        section? (seq (nth first-row SECT-IDX))
-        segment? (seq (nth first-row SEG-IDX))]
+        section? (seq (nth first-row con/SECT-IDX))
+        segment? (seq (nth first-row con/SEG-IDX))]
     (concat
      [["Book:"]
      ["Title:"]
@@ -129,26 +122,26 @@
   (if not present). Expects a un-parsed input."
   [input]
   (let [total-verses (apply + (remove #(empty? (str %))
-                                      (map #(nth % END-IDX) input)))
-        div? (seq (nth (first input) DIV-IDX))
+                                      (map #(nth % con/END-IDX) input)))
+        div? (seq (nth (first input) con/DIV-IDX))
         verse-dif (fn [s ps pv]
-                    (* TOTAL-WIDTH (/ (+ (- s ps)
+                    (* con/TOTAL-WIDTH (/ (+ (- s ps)
                                            pv) total-verses)))]
     (loop [row (second input)
            rows (drop 2 input)
            previous-start 1
            previous-value 0
            width []]
-      (let [start (nth row START-IDX)
-            end? (seq (str (nth row END-IDX)))
-            new-seg? (seq (nth row SEG-IDX))]
+      (let [start (nth row con/START-IDX)
+            end? (seq (str (nth row con/END-IDX)))
+            new-seg? (seq (nth row con/SEG-IDX))]
         (if (= 0 (count rows))
           (map int (as-> width w
                      (if (or (not div?) new-seg?)
                        (conj w (verse-dif start previous-start previous-value))
                        w)
-                     (conj w (* TOTAL-WIDTH (/ (+
-                                                (- (nth row END-IDX) start)
+                     (conj w (* con/TOTAL-WIDTH (/ (+
+                                                (- (nth row con/END-IDX) start)
                                                 1
                                                 (if (and div? (not new-seg?))
                                                   (- start previous-start)
@@ -158,7 +151,7 @@
           (recur (first rows) (rest rows) (if end? 1 start)
                  (+
                   (if end?
-                    (- (nth row END-IDX) start -1)
+                    (- (nth row con/END-IDX) start -1)
                     0)
                   (if (and div? (not new-seg?))
                     (+ (- start previous-start) previous-value)
@@ -211,11 +204,11 @@
         DEFAULT-WIDTH 6 #_"In characters"
         sheet (sp/select-sheet "HZD" wb)
         widths (calculate-width input)
-        div? (seq (nth (first input) DIV-IDX))
-        sect? (seq (nth (first input) SECT-IDX))
-        seg? (seq (nth (first input) SEG-IDX))
+        div? (seq (nth (first input) con/DIV-IDX))
+        sect? (seq (nth (first input) con/SECT-IDX))
+        seg? (seq (nth (first input) con/SEG-IDX))
         columns-used (char-range \B (if div?
-                                      (count (remove empty? (map #(nth % SEG-IDX) input)))
+                                      (count (remove empty? (map #(nth % con/SEG-IDX) input)))
                                       (count input)))]
     (.setHeight (nth (sp/row-seq sheet) (cond-> 6
                                           seg? inc

@@ -1,5 +1,6 @@
 (set-env!
- :resource-paths #{"src" "tests"}
+ :source-paths #{"src/java"}
+ :resource-paths #{"src/clj" "tests"}
  :dependencies '[[org.clojure/clojure "1.9.0"]
                  [seesaw "1.4.5"]
                  [dk.ative/docjure "1.12.0"]])
@@ -17,9 +18,10 @@
     (horizontal-maker.start/-main)))
 
 (deftask build []
-  (set-env! :resource-paths #{"src"})
+  (set-env! :resource-paths #{"src/clj"})
   (comp
    (pom)
+   (javac)
    (aot :namespace #{'horizontal-maker.start})
    (uber)
    (jar :main 'horizontal-maker.start :file "horizontal-maker.jar")

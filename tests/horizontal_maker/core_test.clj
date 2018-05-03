@@ -63,7 +63,7 @@
 
 (deftest test-get-merge-range
   (is (= [[1 10] [11 15]]
-         (get-merge-range example-parsed-1 5))))
+         (get-merge-range (nth example-parsed-1 5)))))
 
 (deftest test-create-spreadsheet-vector
   (is (= [["Book:"]
