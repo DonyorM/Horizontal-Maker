@@ -5,11 +5,12 @@
             [clojure.stacktrace]
             [clojure.java.io]
             [seesaw.core :as s]
-            [seesaw.chooser :as sc]))
+            [seesaw.chooser :as sc]
+            [horizontal-maker.constants :as con]))
 
-(defn generate [source]
+(defn generate [source width]
   (sp/save-workbook! source
-                     (c/make-hzd source)))
+                     (c/make-hzd source width)))
 
 (defn display-error [message e]
   (s/show! (s/dialog
@@ -92,9 +93,11 @@
                                              (s/text! input-field (if f
                                                                     (.getPath f)
                                                                     "")))])
+        width-field (s/spinner :model con/TOTAL-WIDTH)
         done (s/button :text "Generate Horizontal"
                        :listen [:action (fn [& args] (try
-                                           (generate (s/text input-field))
+                                                       (generate (s/text input-field)
+                                                                 (s/selection width-field))
                                            (s/alert "Horizontal Created. Please close and re-open your excel sheet to see the changes.")
                                            (catch Exception e
                                              (clojure.stacktrace/print-stack-trace e)
@@ -102,10 +105,14 @@
         vertical (s/button :text "Generate Vertical")
         frame (s/frame :title "Make Horizontal"
                        :minimum-size [490 :by 90]
+                       :on-close :dispose
                        :content (s/vertical-panel :items
                                                   [(s/horizontal-panel
                                                     :items [(s/label "Input File:")
                                                             input-field browse])
+                                                   (s/horizontal-panel
+                                                    :items [(s/label "Total Width:")
+                                                            width-field])
                                                    (s/horizontal-panel
                                                     :items [done vertical])]))]
     (s/listen vertical :action (fn [& args]

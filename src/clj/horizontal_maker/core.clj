@@ -119,48 +119,52 @@
 
 (defn calculate-width
   "Calculates the width for each segment (if divisons present), or paragaraph
-  (if not present). Expects a un-parsed input."
-  [input]
-  (let [total-verses (apply + (remove #(empty? (str %))
-                                      (map #(nth % con/END-IDX) input)))
-        div? (seq (nth (first input) con/DIV-IDX))
-        verse-dif (fn [s ps pv]
-                    (* con/TOTAL-WIDTH (/ (+ (- s ps)
-                                           pv) total-verses)))]
-    (loop [row (second input)
-           rows (drop 2 input)
-           previous-start 1
-           previous-value 0
-           width []]
-      (let [start (nth row con/START-IDX)
-            end? (seq (str (nth row con/END-IDX)))
-            new-seg? (seq (nth row con/SEG-IDX))]
-        (if (= 0 (count rows))
-          (map int (as-> width w
-                     (if (or (not div?) new-seg?)
-                       (conj w (verse-dif start previous-start previous-value))
-                       w)
-                     (conj w (* con/TOTAL-WIDTH (/ (+
-                                                (- (nth row con/END-IDX) start)
-                                                1
-                                                (if (and div? (not new-seg?))
-                                                  (- start previous-start)
-                                                  0)
-                                                previous-value)
-                                               total-verses)))))
-          (recur (first rows) (rest rows) (if end? 1 start)
-                 (+
-                  (if end?
-                    (- (nth row con/END-IDX) start -1)
-                    0)
-                  (if (and div? (not new-seg?))
-                    (+ (- start previous-start) previous-value)
-                    0))
-                 (if div?
-                   (if new-seg?
-                     (conj width (verse-dif start previous-start previous-value))
-                     width)
-                   (conj width (verse-dif start previous-start previous-value)))))))))
+  (if not present). Expects a un-parsed input.
+
+  t-width is the total width, defaults to con/TOTAL-WIDTH"
+  ([input t-width]
+   (let [total-verses (apply + (remove #(empty? (str %))
+                                       (map #(nth % con/END-IDX) input)))
+         div? (seq (nth (first input) con/DIV-IDX))
+         verse-dif (fn [s ps pv]
+                     (* t-width (/ (+ (- s ps)
+                                      pv) total-verses)))]
+     (loop [row (second input)
+            rows (drop 2 input)
+            previous-start 1
+            previous-value 0
+            width []]
+       (let [start (nth row con/START-IDX)
+             end? (seq (str (nth row con/END-IDX)))
+             new-seg? (seq (nth row con/SEG-IDX))]
+         (if (= 0 (count rows))
+           (map int (as-> width w
+                      (if (or (not div?) new-seg?)
+                        (conj w (verse-dif start previous-start previous-value))
+                        w)
+                      (conj w (* t-width (/ (+
+                                             (- (nth row con/END-IDX) start)
+                                             1
+                                             (if (and div? (not new-seg?))
+                                               (- start previous-start)
+                                               0)
+                                             previous-value)
+                                            total-verses)))))
+           (recur (first rows) (rest rows) (if end? 1 start)
+                  (+
+                   (if end?
+                     (- (nth row con/END-IDX) start -1)
+                     0)
+                   (if (and div? (not new-seg?))
+                     (+ (- start previous-start) previous-value)
+                     0))
+                  (if div?
+                    (if new-seg?
+                      (conj width (verse-dif start previous-start previous-value))
+                      width)
+                    (conj width (verse-dif start previous-start previous-value)))))))))
+  ([input]
+   (calculate-width input con/TOTAL-WIDTH)))
 
 
 (defn char-range
@@ -198,12 +202,12 @@
 
 (defn apply-formatting!
   "Formats each row and cell for the horizontal. Not remotely pure."
-  [input wb]
+  ([input wb t-width]
   (let [PARA-HEIGHT 2400 ; Height for the main paragraph row (paragraphs or segments)
         REF-HEIGHT 540 ; Height for the row iwth starting verse reference
         DEFAULT-WIDTH 6 #_"In characters"
         sheet (sp/select-sheet "HZD" wb)
-        widths (calculate-width input)
+        widths (calculate-width input t-width)
         div? (seq (nth (first input) con/DIV-IDX))
         sect? (seq (nth (first input) con/SECT-IDX))
         seg? (seq (nth (first input) con/SEG-IDX))
@@ -246,6 +250,8 @@
             n (range (if sect? 8 7) (if sect? 11 10))]
             (if-let [cell (sp/select-cell (str l n) sheet)]
               (.setRotation (.getCellStyle cell) 90)))))
+  ([input wb]
+   (apply-formatting! input wb con/TOTAL-WIDTH)))
 
 (defn get-values
   "Reads the source from the passed workbook file"
@@ -255,16 +261,19 @@
          (remove #(let [val (sp/read-cell (first (sp/cell-seq %)))]
                     (or (nil? val) (not (number? val)))) (sp/row-seq sheet)))))
 
-(defn make-hzd [source-file]
-  (let [wb (sp/load-workbook source-file)
-        input (get-values wb)
-        parsed (create-spreadsheet-vector input)
-        sheet (or (sp/select-sheet "HZD" wb)
-                  (sp/add-sheet! wb "HZD"))]
-    (sp/remove-all-rows! sheet)
-    (.removeMergedRegions sheet (range 0 (.getNumMergedRegions sheet)))
-    (sp/add-rows! sheet parsed)
-    (merge-cells! parsed wb)
-    (apply-formatting! input wb)
-    wb))
+(defn make-hzd
+  ([source-file t-width]
+   (let [wb (sp/load-workbook source-file)
+         input (get-values wb)
+         parsed (create-spreadsheet-vector input)
+         sheet (or (sp/select-sheet "HZD" wb)
+                   (sp/add-sheet! wb "HZD"))]
+     (sp/remove-all-rows! sheet)
+     (.removeMergedRegions sheet (range 0 (.getNumMergedRegions sheet)))
+     (sp/add-rows! sheet parsed)
+     (merge-cells! parsed wb)
+     (apply-formatting! input wb t-width)
+     wb))
+  ([source-file]
+   (make-hzd source-file con/TOTAL-WIDTH)))
 
