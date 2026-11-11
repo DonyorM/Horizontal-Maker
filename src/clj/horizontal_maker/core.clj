@@ -1,11 +1,8 @@
 (ns horizontal-maker.core
-  (:require [dk.ative.docjure.spreadsheet :as sp]
-            [horizontal-maker.constants :as con])
-  (:import org.apache.poi.ss.util.CellRangeAddress))
-
-
-(defn cell-range-address [rowStart rowEnd columnStart columnEnd]
-  (CellRangeAddress. rowStart rowEnd columnStart columnEnd))
+  "Pure functions that turn the rows of an input sheet into the layout of a
+  horizontal. Nothing here touches a file; see horizontal-maker.excel and
+  horizontal-maker.ods for the writers."
+  (:require [horizontal-maker.constants :as con]))
 
 (defn get-column
   "Rotates a column to a row."
@@ -29,20 +26,20 @@
         (recur (first row) (rest row) (inc idx) start_idx indexes)))))
 
 (defn get-end-references
-  "Gets the references (start or end) for a segment or other divsion."
+  "Gets the chapter-end references for each segment (or other division)."
   [input ref-idx seg-idx]
   (loop [row (second input)
          rows (drop 2 input)
          refs []
          current-end ""]
-    (let [chap-end (if-not (empty? (str (nth row 2)))
-                     (nth row 2)
+    (let [chap-end (if-not (empty? (str (nth row ref-idx)))
+                     (nth row ref-idx)
                      current-end)]
-    (if (= 0 (count rows))
-      (conj refs chap-end)
-      (if-not (empty? (nth row seg-idx))
-        (recur (first rows) (rest rows) (conj refs current-end) (nth row 2))
-        (recur (first rows) (rest rows) refs chap-end))))))
+      (if (= 0 (count rows))
+        (conj refs chap-end)
+        (if-not (empty? (nth row seg-idx))
+          (recur (first rows) (rest rows) (conj refs current-end) (nth row ref-idx))
+          (recur (first rows) (rest rows) refs chap-end))))))
 
 (defn get-start-references
   "Gets the chapter and verse references for starting a segment"
@@ -77,23 +74,28 @@
           result-vec [(concat divs (if seg? [div] []))
                       (concat sects (if seg? [sect] []))
                       (concat segms (if seg? [seg] []))]]
-    (if (= 0 (count rows))
-      [(first result-vec) (second result-vec)
-       (cons "" (get-end-references input con/END-IDX con/SEG-IDX)) (last result-vec)
-       (cons "" (get-start-references input con/START-IDX con/SEG-IDX))]
-      (recur (first rows) (rest rows) (first result-vec)
-             (second result-vec) (last result-vec))))))
+      (if (= 0 (count rows))
+        [(first result-vec) (second result-vec)
+         (cons "" (get-end-references input con/END-IDX con/SEG-IDX)) (last result-vec)
+         (cons "" (get-start-references input con/START-IDX con/SEG-IDX))]
+        (recur (first rows) (rest rows) (first result-vec)
+               (second result-vec) (last result-vec))))))
 
 (defn- paragraph-based-sheet
   "For a sheet without divisions."
   [input]
-  (let [first-row (first input)]
+  (let [first-row (first input)
+        ;; Transpose the input so each input column becomes a row, labelled
+        ;; with the heading shown in the first column of the horizontal.
+        labels ["" "" "Paragr." "" "Segm." "Sect."]
+        transposed (apply map #(identity %&) labels input)]
     (reverse (cons (cons "" (get-start-references input con/START-IDX con/PARA-IDX))
-                   (rest (take (cond
-                           (seq (nth first-row con/SECT-IDX)) 5
-                           (seq (nth first-row con/SEG-IDX)) 4
-                           true 3)
-                         (apply map #(identity %&) ["" "Paragr." "" "Segm." "Sect."] input)))))))
+                   ;; Drop the chapter and verse rows; they aren't shown.
+                   (drop 2 (take (cond
+                                   (seq (nth first-row con/SECT-IDX)) 6
+                                   (seq (nth first-row con/SEG-IDX)) 5
+                                   true 4)
+                                 transposed))))))
 
 (defn create-spreadsheet-vector
   "Parse the input organized in columns to output organized in rows
@@ -101,18 +103,16 @@
   to add-rows!
 
   It expects a vector of vectors with the following schema:
-  [start-verse title chapter-end-verse? segment? section? division?]"
+  [chapter start-verse title chapter-end-verse? segment? section? division?]"
   [input]
   (let [first-row (first input)
-        division? (seq (last first-row))
-        section? (seq (nth first-row con/SECT-IDX))
-        segment? (seq (nth first-row con/SEG-IDX))]
+        division? (seq (nth first-row con/DIV-IDX))]
     (concat
      [["Book:"]
-     ["Title:"]
-     ["Key Verse:"]
-     [""]
-     [""]]
+      ["Title:"]
+      ["Key Verse:"]
+      [""]
+      [""]]
      (if division?
        (division-based-sheet input)
        (paragraph-based-sheet input)))))
@@ -166,114 +166,76 @@
   ([input]
    (calculate-width input con/TOTAL-WIDTH)))
 
+;;; Layout: everything a writer needs to know about the HZD sheet, independent
+;;; of the file format. Rows and columns are 0-based.
 
-(defn char-range
-  "Generates a range of address for columns of an excel sheet, starting from the passed character and to the offset. It will automatically increment the prefix up to ZZ (so far does not support triple letter column indexes.)
+(def ^:private HEADER-ROWS
+  "Number of rows above the horizontal itself (Book, Title, Key Verse, 2 blank)."
+  5)
 
-  Generally one should not pass the prefix, and allow the function to handle this itself."
-  ([start offset prefix]
-  ;; 90 is the value for \Z
-  (if (<= (+ (int start) offset) 90)
-    (map #(str prefix (char %)) (range (int start) (inc (+ offset (int start)))))
-    (concat (char-range start (- 90 (int start)) prefix)
-            (flatten (char-range \A
-                                 (- offset (- 90 (int start)))
-                                 (if (string? prefix)
-                                   \A
-                                   (char (inc (int prefix)))))))))
-  ([start offset]
-   (char-range start offset "")))
-
-(defn merge-cells!
-  "Merges the header cells (divisions, sections, or segments).
+(defn merge-ranges
+  "The cells to merge in order to form the headings (divisions, sections, or
+  segments), as [row-idx first-col last-col] triples. Only ranges spanning more
+  than one cell are returned.
 
   Expects pre-parsed input, as generated by create-spreadsheet-vector"
-  [parsed wb]
+  [parsed]
   (let [headers (->> parsed
-                    (drop 5) ; First five rows aren't headers
-                    (drop-last 3) #_"Last five never merge")]
-    (doall (map (fn [row-id cell-ranges]
-                  (doall (map #(if (> (- (second %) (first %)) 0)
-                          (.addMergedRegion (sp/select-sheet "HZD" wb)
-                                          (cell-range-address row-id row-id (first %) (second %))))
-                       cell-ranges)))
-                              (range 5 (+ 5 (count headers)))
-                              (map get-merge-range headers)))))
+                     (drop HEADER-ROWS)
+                     (drop-last 3))] ; The last three rows (End, Para/Seg, Ref) never merge
+    (vec (mapcat (fn [row-idx row]
+                   (for [[c1 c2] (get-merge-range row)
+                         :when (> c2 c1)]
+                     [row-idx c1 c2]))
+                 (range HEADER-ROWS (+ HEADER-ROWS (count headers)))
+                 headers))))
 
-(defn apply-formatting!
-  "Formats each row and cell for the horizontal. Not remotely pure."
-  ([input wb t-width]
-  (let [PARA-HEIGHT 2400 ; Height for the main paragraph row (paragraphs or segments)
-        REF-HEIGHT 540 ; Height for the row iwth starting verse reference
-        DEFAULT-WIDTH 6 #_"In characters"
-        sheet (sp/select-sheet "HZD" wb)
-        widths (calculate-width input t-width)
-        div? (seq (nth (first input) con/DIV-IDX))
-        sect? (seq (nth (first input) con/SECT-IDX))
-        seg? (seq (nth (first input) con/SEG-IDX))
-        columns-used (char-range \B (if div?
-                                      (count (remove empty? (map #(nth % con/SEG-IDX) input)))
-                                      (count input)))]
-    (.setHeight (nth (sp/row-seq sheet) (cond-> 6
-                                          seg? inc
-                                          sect? inc)) PARA-HEIGHT)
-    (.setHeight (nth (sp/row-seq sheet) (cond-> 7
-                                          seg? inc
-                                          sect? inc)) REF-HEIGHT)
-    (.setDefaultColumnWidth sheet DEFAULT-WIDTH)
-    ;; Set the formatting for the headers at the top of the page
-    (doall (->> (map #(sp/select-cell % sheet) ["A1" "A2" "A3"])
-            (map #(sp/set-cell-style! % (sp/create-cell-style! wb {:font {:bold true :italic true :size 11}})))))
-    (doall (map (fn [index width]
-                  (.setColumnWidth sheet index width))
-                (range 1 (inc (count widths))) widths))
-    ;; Setting borders for each cell
-    (doseq [l columns-used
-            n (range 6 (cond-> 9
-                         seg? inc
-                         sect? inc))]
-      (if-let [cell (sp/select-cell (str l n) sheet)]
-        (sp/set-cell-style! cell (sp/create-cell-style! wb
-                                                        (cond-> {:border-left :thin
-                                                                 :border-right :thin :wrap true}
-                                                          (or (and sect? (< n 8))
-                                                              (and (not sect?) (< n 7)))
-                                                          (assoc :border-top :thin
-                                                                 :border-bottom :thin
-                                                                 :halign :center)
-                                                          (or (>= n 10)
-                                                              (and (not sect?)
-                                                                   (>= n 9)))
-                                                          (assoc :border-bottom :thin))))))
-    ; Make text vertical for paragraph titles (or segments)
-    (doseq [l columns-used
-            n (range (if sect? 8 7) (if sect? 11 10))]
-            (if-let [cell (sp/select-cell (str l n) sheet)]
-              (.setRotation (.getCellStyle cell) 90)))))
-  ([input wb]
-   (apply-formatting! input wb con/TOTAL-WIDTH)))
+(defn row-heights
+  "Map of row index to height in points for the rows that aren't default
+  height: the paragraph (or segment) title row and the reference row."
+  [parsed]
+  (let [n (count parsed)]
+    {(- n 2) con/PARA-ROW-HEIGHT-PT
+     (- n 1) con/REF-ROW-HEIGHT-PT}))
 
-(defn get-values
-  "Reads the source from the passed workbook file"
-  [source]
-  (let [sheet (first (sp/sheet-seq source))]
-    (map (fn [row] (map sp/read-cell (take 6 (concat (sp/cell-seq row) (repeat nil))))) ; The format is six columns across
-         (remove #(let [val (sp/read-cell (first (sp/cell-seq %)))]
-                    (or (nil? val) (not (number? val)))) (sp/row-seq sheet)))))
+(defn cell-styles
+  "Map of [row col] to a set of style keywords for every cell of the horizontal
+  that needs formatting. n-cols is the number of data columns (excluding the
+  label column).
 
-(defn make-hzd
-  ([source-file t-width]
-   (let [wb (sp/load-workbook source-file)
-         input (get-values wb)
-         parsed (create-spreadsheet-vector input)
-         sheet (or (sp/select-sheet "HZD" wb)
-                   (sp/add-sheet! wb "HZD"))]
-     (sp/remove-all-rows! sheet)
-     (.removeMergedRegions sheet (range 0 (.getNumMergedRegions sheet)))
-     (sp/add-rows! sheet parsed)
-     (merge-cells! parsed wb)
-     (apply-formatting! input wb t-width)
-     wb))
-  ([source-file]
-   (make-hzd source-file con/TOTAL-WIDTH)))
+  Keywords: :bold :italic :border-left :border-right :border-top :border-bottom
+  :center :wrap :rotate-90"
+  [parsed n-cols]
+  (let [n (count parsed)
+        body-rows (range HEADER-ROWS n)
+        rotated-rows (set (take-last 3 body-rows))
+        last-row (dec n)
+        heading-styles (into {} (for [r (range 3)] [[r 0] #{:bold :italic}]))]
+    (into heading-styles
+          (for [r body-rows
+                c (range 1 (inc n-cols))]
+            [[r c] (cond-> #{:border-left :border-right :wrap}
+                     (not (rotated-rows r)) (conj :border-top :border-bottom :center)
+                     (rotated-rows r) (conj :rotate-90)
+                     (= r last-row) (conj :border-bottom))]))))
 
+(defn hzd-layout
+  "Everything needed to write the HZD sheet, independent of file format:
+
+  {:rows        parsed rows, suitable for writing cell by cell
+   :merges      [[row first-col last-col] ...]
+   :col-widths  [w ...] widths of the data columns (1..n) in Excel units
+   :default-col-width-chars  width of other columns, in characters
+   :row-heights {row-idx points}
+   :cell-styles {[row col] #{style-keyword ...}}}"
+  ([input t-width]
+   (let [parsed (mapv vec (create-spreadsheet-vector input))
+         widths (vec (calculate-width input t-width))]
+     {:rows parsed
+      :merges (merge-ranges parsed)
+      :col-widths widths
+      :default-col-width-chars con/DEFAULT-COL-WIDTH-CHARS
+      :row-heights (row-heights parsed)
+      :cell-styles (cell-styles parsed (count widths))}))
+  ([input]
+   (hzd-layout input con/TOTAL-WIDTH)))

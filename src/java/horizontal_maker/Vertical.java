@@ -2,10 +2,9 @@ package horizontal_maker;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment;
 import org.apache.poi.xwpf.usermodel.UnderlinePatterns;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
@@ -103,7 +102,7 @@ public class Vertical {
         try (FileOutputStream str = new FileOutputStream(outputLoc)) {
             doc.write(str);
         } catch (IOException ex) {
-            Logger.getLogger(Vertical.class.getName()).log(Level.SEVERE, null, ex);
+            throw new UncheckedIOException("Could not write " + outputLoc, ex);
         }
     }
 
